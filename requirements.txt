@@ -1,0 +1,4 @@
+anthropic>=0.75.0
+streamlit>=1.37.0
+docxtpl>=0.16.8
+python-dotenv>=1.0.1
