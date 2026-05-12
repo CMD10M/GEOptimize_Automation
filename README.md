@@ -23,7 +23,7 @@ Install Python 3.11 or newer.
 ### 2. Install dependencies
 From this folder, run:
 
-```bash
+```bash 
 pip install -r requirements.txt
 ```
 
@@ -37,7 +37,7 @@ CLAUDE_MODEL=claude-opus-4-7
 
 You can also enter the key directly in the Streamlit sidebar.
 
-## Run the app
+## Run the app on a Mac
 
 ```bash
 python3 -m streamlit run app.py
