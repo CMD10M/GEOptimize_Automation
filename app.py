@@ -7,6 +7,12 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
+import time
+from anthropic._exceptions import (
+    OverloadedError,
+    RateLimitError,
+    APIConnectionError,
+)
 from anthropic import Anthropic
 from docx import Document
 from docxtpl import DocxTemplate
@@ -178,7 +184,7 @@ def replace_marker_with_scope(doc: Document, marker: str, scope_sections):
                 for task in tasks:
                     p = paragraph.insert_paragraph_before(str(task).strip())
                     try:
-                        p.style = "List Bullet"
+                        p.style = "GEOptimize Bullet"
                     except KeyError:
                         p.style = "Normal"
                         p.text = "• " + p.text
@@ -195,7 +201,7 @@ def replace_marker_with_bullets(doc: Document, marker: str, items):
             for item in items:
                 p = paragraph.insert_paragraph_before(str(item).strip())
                 try:
-                    p.style = "List Bullet"
+                    p.style = "GEOptimize Bullet"
                 except KeyError:
                     p.style = "Normal"
                     p.text = "• " + p.text
@@ -238,12 +244,36 @@ def render_proposal_docx(context: dict) -> bytes:
 
 
 def call_claude(client: Anthropic, model: str, max_tokens: int, system_prompt: str, content: list):
-    return client.messages.create(
-        model=model,
-        max_tokens=int(max_tokens),
-        system=system_prompt,
-        messages=[{"role": "user", "content": content}],
-    )
+    retries = 3
+
+    for attempt in range(retries):
+        try:
+            return client.messages.create(
+                model=model,
+                max_tokens=int(max_tokens),
+                system=system_prompt,
+                messages=[{"role": "user", "content": content}],
+            )
+
+        except Exception as exc:
+            error_text = str(exc)
+
+            overloaded = (
+                "529" in error_text
+                or "Overloaded" in error_text
+                or "rate_limit" in error_text
+            )
+
+            if not overloaded or attempt == retries - 1:
+                raise exc
+
+            wait_seconds = 5 * (attempt + 1)
+
+            st.warning(
+                f"Claude API busy. Retrying in {wait_seconds} seconds..."
+            )
+
+            time.sleep(wait_seconds)
 
 
 st.set_page_config(page_title="GEOptimize Automation", layout="centered")
