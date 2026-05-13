@@ -325,7 +325,7 @@ else:
         selected_database_files = st.multiselect(
             "Select proposal examples to use as style/scope references",
             options=[p.name for p in database_files],
-            default=[p.name for p in database_files[:3]],
+            default=[],
         )
     else:
         selected_database_files = []
