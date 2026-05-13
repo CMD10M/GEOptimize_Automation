@@ -11,6 +11,7 @@ from anthropic import Anthropic
 from docx import Document
 from docxtpl import DocxTemplate
 from dotenv import load_dotenv
+from docx.shared import Pt
 
 from report_prompt import SYSTEM_PROMPT, USER_PROMPT, REQUIRED_KEYS
 from proposal_prompt import PROPOSAL_SYSTEM_PROMPT, PROPOSAL_USER_PROMPT
@@ -18,7 +19,19 @@ from proposal_prompt import PROPOSAL_SYSTEM_PROMPT, PROPOSAL_USER_PROMPT
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_PATH = BASE_DIR / "templates" / "GEOptimize_GHX_Feasibility_Autofill_Template.docx"
+
+FEASIBILITY_TEMPLATE_PATH = (
+    BASE_DIR
+    / "templates"
+    / "GEOptimize_GHX_Feasibility_Autofill_Template.docx"
+)
+
+PROPOSAL_TEMPLATE_PATH = (
+    BASE_DIR
+    / "templates"
+    / "GEOptimize_Proposal_Master_Template.docx"
+)
+
 PROPOSAL_DATABASE_DIR = BASE_DIR / "proposal_database"
 PROPOSAL_DATABASE_DIR.mkdir(exist_ok=True)
 
@@ -119,41 +132,109 @@ def validate_context(context: dict) -> dict:
 def render_feasibility_docx(context: dict) -> bytes:
     with tempfile.TemporaryDirectory() as tmpdir:
         out_path = Path(tmpdir) / "GHX_Feasibility_Report.docx"
-        doc = DocxTemplate(str(TEMPLATE_PATH))
+        doc = DocxTemplate(str(FEASIBILITY_TEMPLATE_PATH))
         doc.render(context)
         doc.save(str(out_path))
         return out_path.read_bytes()
 
 
+def remove_paragraph(paragraph):
+    element = paragraph._element
+    element.getparent().remove(element)
+
+
+def as_list(value):
+    if isinstance(value, list):
+        return value
+
+    if isinstance(value, str):
+        return [
+            line.strip("•- ").strip()
+            for line in value.splitlines()
+            if line.strip()
+        ]
+
+    return []
+
+
+def replace_marker_with_scope(doc: Document, marker: str, scope_sections):
+    if not isinstance(scope_sections, list):
+        scope_sections = []
+
+    for paragraph in list(doc.paragraphs):
+        if marker in paragraph.text:
+            for section in scope_sections:
+                heading = section.get("heading", "").strip()
+                intro = section.get("intro", "").strip()
+                tasks = section.get("tasks", [])
+
+                if heading:
+                    p = paragraph.insert_paragraph_before(heading)
+                    p.style = "Heading 2"
+
+                if intro:
+                    p = paragraph.insert_paragraph_before(intro)
+                    p.style = "Normal"
+                for task in tasks:
+                    p = paragraph.insert_paragraph_before(str(task).strip())
+                    try:
+                        p.style = "List Bullet"
+                    except KeyError:
+                        p.style = "Normal"
+                        p.text = "• " + p.text
+
+            remove_paragraph(paragraph)
+            break
+
+
+def replace_marker_with_bullets(doc: Document, marker: str, items):
+    items = as_list(items)
+
+    for paragraph in list(doc.paragraphs):
+        if marker in paragraph.text:
+            for item in items:
+                p = paragraph.insert_paragraph_before(str(item).strip())
+                try:
+                    p.style = "List Bullet"
+                except KeyError:
+                    p.style = "Normal"
+                    p.text = "• " + p.text
+
+            remove_paragraph(paragraph)
+            break
+
+
 def render_proposal_docx(context: dict) -> bytes:
     with tempfile.TemporaryDirectory() as tmpdir:
-        out_path = Path(tmpdir) / "GEOptimize_Proposal_Draft.docx"
-        doc = Document()
-        doc.add_heading(context.get("proposal_title", "Proposal Draft"), 0)
-        subtitle = context.get("project_name", "")
-        if subtitle and subtitle != "Not provided":
-            doc.add_paragraph(subtitle)
-        doc.add_paragraph(context.get("proposal_date", datetime.now().strftime("%B %d, %Y")))
-        doc.add_paragraph("")
+        rendered_path = Path(tmpdir) / "proposal_rendered.docx"
+        final_path = Path(tmpdir) / "GEOptimize_Proposal_Draft.docx"
 
-        body = context.get("proposal_body", "")
-        for line in body.splitlines():
-            clean = line.strip()
-            if not clean:
-                doc.add_paragraph("")
-            elif clean.endswith(":") and len(clean) < 80:
-                doc.add_heading(clean.rstrip(":"), level=1)
-            elif clean.lower() in [
-                "understanding of project", "scope of work", "information required",
-                "deliverables", "assumptions and exclusions", "pricing placeholder", "pricing"
-            ]:
-                doc.add_heading(clean, level=1)
-            elif clean.startswith("• ") or clean.startswith("- "):
-                doc.add_paragraph(clean[2:], style="List Bullet")
-            else:
-                doc.add_paragraph(clean)
-        doc.save(str(out_path))
-        return out_path.read_bytes()
+        doc = DocxTemplate(str(PROPOSAL_TEMPLATE_PATH))
+        doc.render(context)
+        doc.save(str(rendered_path))
+
+        final_doc = Document(str(rendered_path))
+
+        replace_marker_with_scope(
+            final_doc,
+            "[[SCOPE_OF_WORK]]",
+            context.get("scope_sections", [])
+        )
+
+        replace_marker_with_bullets(
+            final_doc,
+            "[[INFORMATION_REQUIRED]]",
+            context.get("information_required", [])
+        )
+
+        replace_marker_with_bullets(
+            final_doc,
+            "[[DELIVERABLES]]",
+            context.get("deliverables", [])
+        )
+
+        final_doc.save(str(final_path))
+        return final_path.read_bytes()
 
 
 def call_claude(client: Anthropic, model: str, max_tokens: int, system_prompt: str, content: list):
