@@ -38,6 +38,8 @@ PROPOSAL_TEMPLATE_PATH = (
     / "GEOptimize_Proposal_Master_Template.docx"
 )
 
+
+
 PROPOSAL_DATABASE_DIR = BASE_DIR / "proposal_database"
 PROPOSAL_DATABASE_DIR.mkdir(exist_ok=True)
 
@@ -209,8 +211,33 @@ def replace_marker_with_bullets(doc: Document, marker: str, items):
             remove_paragraph(paragraph)
             break
 
+def replace_marker_with_terms(doc: Document, marker: str, terms_text: str):
+    for paragraph in list(doc.paragraphs):
+        if marker in paragraph.text:
 
-def render_proposal_docx(context: dict) -> bytes:
+            for line in terms_text.splitlines():
+                clean = line.strip()
+
+                if not clean:
+                    paragraph.insert_paragraph_before("")
+
+                elif re.match(r"^\d+\.\s", clean):
+                    p = paragraph.insert_paragraph_before(clean)
+                    p.style = "Legal"
+
+                elif re.match(r"^\([a-z]\)", clean):
+                    p = paragraph.insert_paragraph_before(clean)
+                    p.style = "Legal"
+
+                else:
+                    p = paragraph.insert_paragraph_before(clean)
+                    p.style = "Legal"
+
+            remove_paragraph(paragraph)
+            break
+
+
+def render_proposal_docx(context: dict, terms_region: str) -> bytes:
     with tempfile.TemporaryDirectory() as tmpdir:
         rendered_path = Path(tmpdir) / "proposal_rendered.docx"
         final_path = Path(tmpdir) / "GEOptimize_Proposal_Draft.docx"
@@ -237,6 +264,19 @@ def render_proposal_docx(context: dict) -> bytes:
             final_doc,
             "[[DELIVERABLES]]",
             context.get("deliverables", [])
+        )
+
+        if terms_region == "USA":
+            terms_path = BASE_DIR / "templates" / "terms" / "us_terms.txt"
+        else:
+            terms_path = BASE_DIR / "templates" / "terms" / "canada_terms.txt"
+
+        terms_text = terms_path.read_text(encoding="utf-8")
+
+        replace_marker_with_terms(
+            final_doc,
+            "[[TERMS_AND_CONDITIONS]]",
+            terms_text
         )
 
         final_doc.save(str(final_path))
@@ -382,6 +422,13 @@ else:
         height=220,
         placeholder="Example: Client is evaluating preliminary GHX sizing only. Include energy model review as optional scope. Pricing to be left as placeholder.",
     )
+    st.subheader("4. Terms & Conditions")
+
+    terms_region = st.radio(
+        "Select Terms & Conditions",
+        ["Canada", "USA"],
+        horizontal=True,
+    )
 
     if st.button("Generate Proposal Draft", type="primary"):
         if not api_key:
@@ -419,6 +466,18 @@ else:
             try:
                 context = parse_json_response(raw_text)
                 context["proposal_date"] = datetime.now().strftime("%B %d, %Y")
+
+                # Backward-compatible client field cleanup
+                if not context.get("client_name") or context.get("client_name") == "Not provided":
+                    context["client_name"] = context.get("client_company", "Not provided")
+
+                if not context.get("client_address"):
+                    context["client_address"] = "Not provided"
+
+                if not context.get("client_contact"):
+                    context["client_contact"] = "Not provided"
+
+
             except Exception as exc:
                 st.error("Claude returned output that could not be parsed as JSON.")
                 st.text_area("Raw Claude output", raw_text, height=400)
@@ -426,7 +485,7 @@ else:
                 st.stop()
 
             st.write("Creating Word proposal draft...")
-            docx_bytes = render_proposal_docx(context)
+            docx_bytes = render_proposal_docx(context, terms_region)
             status.update(label="Proposal draft generated", state="complete")
 
         st.success("Done. Download the proposal draft below.")

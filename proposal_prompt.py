@@ -75,8 +75,9 @@ Return exactly these JSON keys:
 {
   "proposal_title": "string",
   "proposal_date": "AUTO",
-  "client_contact": "string or Not provided",
+  "client_name": "string or Not provided",
   "client_company": "string or Not provided",
+  "client_address": "string or Not provided",
   "project_name": "string or Not provided",
   "project_location": "string or Not provided",
   "reference_name": "string or Not provided",
@@ -116,11 +117,21 @@ proposal_title:
 proposal_date:
 - Return "AUTO"
 
-client_contact:
-- Primary client contact if identifiable
+client_name:
+- Primary individual contact if identifiable
+- Include title if available
+- Example: "Matt Ferris, Project Manager"
+- If no individual contact is identifiable, return "Not provided"
 
 client_company:
-- Client organization/company name
+- Organization or person the proposal is addressed to
+- Prefer the client organization name when available
+- Example: "Popli Design Group" or "Norway House Cree Nation"
+
+client_address:
+- Mailing or project address for the proposal header if identifiable
+- Preserve line breaks using \n
+- If no address is identifiable, return "Not provided"
 
 project_name:
 - Project name if identifiable
