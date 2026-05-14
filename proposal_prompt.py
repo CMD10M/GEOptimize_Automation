@@ -192,6 +192,7 @@ Example format:
 information_required:
 - Return as an ARRAY of strings
 - Include missing documents, reports, plans, utility data, geotechnical information, or energy model information as appropriate
+- Pick the most critical information to complete the scope of work and don't provide redundant points. Try to keep it concise tp 5 bullets.
 
 deliverables:
 - Return as an ARRAY of strings
