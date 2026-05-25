@@ -5,6 +5,7 @@ import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from docx.shared import Inches
 
 import streamlit as st
 import time
@@ -36,6 +37,24 @@ PROPOSAL_TEMPLATE_PATH = (
     BASE_DIR
     / "templates"
     / "GEOptimize_Proposal_Master_Template.docx"
+)
+
+CAD_TEMPLATE_PATH = (
+    BASE_DIR
+    / "templates"
+    / "Vertical_GHX.docx"
+)
+
+SLINKY_CAD_TEMPLATE_PATH = (
+    BASE_DIR
+    / "templates"
+    / "Slinky_GHX.docx"
+)
+
+HDD_CAD_TEMPLATE_PATH = (
+    BASE_DIR
+    / "templates"
+    / "HDD_GHX.docx"
 )
 
 
@@ -145,6 +164,25 @@ def render_feasibility_docx(context: dict) -> bytes:
         doc.save(str(out_path))
         return out_path.read_bytes()
 
+def render_cad_request_docx(context: dict, rough_sketch_image=None) -> bytes:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_path = Path(tmpdir) / "Vertical_GHX_CAD_Request_Form.docx"
+
+        doc = DocxTemplate(str(CAD_TEMPLATE_PATH))
+        doc.render(context)
+        doc.save(str(out_path))
+
+        final_doc = Document(str(out_path))
+        replace_marker_with_image(
+            final_doc,
+            "[[ROUGH_SKETCH_IMAGE]]",
+            rough_sketch_image,
+            width_inches=6.0,
+        )
+        final_doc.save(str(out_path))
+
+        return out_path.read_bytes()
+
 
 def remove_paragraph(paragraph):
     element = paragraph._element
@@ -193,6 +231,30 @@ def replace_marker_with_scope(doc: Document, marker: str, scope_sections):
 
             remove_paragraph(paragraph)
             break
+
+def replace_marker_with_image(doc: Document, marker: str, uploaded_image, width_inches: float = 6.0):
+    if not uploaded_image:
+        return
+
+    with tempfile.NamedTemporaryFile(
+        suffix=Path(uploaded_image.name).suffix,
+        delete=False,
+    ) as tmp:
+        tmp.write(uploaded_image.getvalue())
+        image_path = tmp.name
+
+    try:
+        for paragraph in list(doc.paragraphs):
+            if marker in paragraph.text:
+                paragraph.text = ""
+                run = paragraph.add_run()
+                run.add_picture(image_path, width=Inches(width_inches))
+                break
+    finally:
+        try:
+            os.remove(image_path)
+        except OSError:
+            pass
 
 
 def replace_marker_with_bullets(doc: Document, marker: str, items):
@@ -282,6 +344,43 @@ def render_proposal_docx(context: dict, terms_region: str) -> bytes:
         final_doc.save(str(final_path))
         return final_path.read_bytes()
 
+def render_slinky_cad_docx(context: dict, rough_sketch_image=None) -> bytes:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_path = Path(tmpdir) / "Slinky_GHX_CAD_Request_Form.docx"
+
+        doc = DocxTemplate(str(SLINKY_CAD_TEMPLATE_PATH))
+        doc.render(context)
+        doc.save(str(out_path))
+
+        final_doc = Document(str(out_path))
+        replace_marker_with_image(
+            final_doc,
+            "[[ROUGH_SKETCH_IMAGE]]",
+            rough_sketch_image,
+            width_inches=6.0,
+        )
+        final_doc.save(str(out_path))
+
+        return out_path.read_bytes()
+
+def render_hdd_cad_docx(context: dict, rough_sketch_image=None) -> bytes:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_path = Path(tmpdir) / "HDD_GHX_CAD_Request_Form.docx"
+
+        doc = DocxTemplate(str(HDD_CAD_TEMPLATE_PATH))
+        doc.render(context)
+        doc.save(str(out_path))
+
+        final_doc = Document(str(out_path))
+        replace_marker_with_image(
+            final_doc,
+            "[[ROUGH_SKETCH_IMAGE]]",
+            rough_sketch_image,
+            width_inches=6.0,
+        )
+        final_doc.save(str(out_path))
+
+        return out_path.read_bytes()
 
 def call_claude(client: Anthropic, model: str, max_tokens: int, system_prompt: str, content: list):
     retries = 3
@@ -333,7 +432,16 @@ with st.sidebar:
         help="Use the model ID shown in your Claude Console. For cost savings, use a Sonnet model if preferred.",
     )
     max_tokens = st.number_input("Max output tokens", min_value=2000, max_value=30000, value=10000, step=500)
-    page = st.radio("Tool", ["Feasibility Report Generator", "Proposal Generator"])
+    page = st.radio(
+        "Tool",
+        [
+            "Feasibility Report Generator",
+            "Proposal Generator",
+            "Vertical GHX CAD Request Form",
+            "Slinky GHX CAD Request Form",
+            "HDD GHX CAD Request Form",
+        ],
+    )
 
 if page == "Feasibility Report Generator":
     st.header("GHX Feasibility Report Generator")
@@ -381,7 +489,7 @@ if page == "Feasibility Report Generator":
         with st.expander("View generated JSON"):
             st.json(context)
 
-else:
+elif page == "Proposal Generator":
     st.header("Proposal Generator")
     st.caption("Use existing proposal examples, uploaded project documents, and notes to draft a new proposal.")
 
@@ -495,5 +603,611 @@ else:
             file_name="GEOptimize_Proposal_Draft.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
+        with st.expander("View generated JSON"):
+            st.json(context)
+
+            
+elif page == "Vertical GHX CAD Request Form":
+    st.header("Vertical GHX CAD Request Form")
+    st.caption("Use vertical GLD output plus user inputs to prepare a CAD request form.")
+
+    st.subheader("1. Vertical GLD Output PDF")
+    cad_gld_pdf = st.file_uploader(
+        "Upload vertical GLD output PDF",
+        type=["pdf"],
+        key="cad_gld_pdf",
+    )
+
+    st.subheader("2. User Inputs")
+
+    job_address_name = st.text_input("Job address / name for CAD title block", key="vertical_job")
+    timeline_due_date = st.text_input("Timeline / due date", key="vertical_due_date")
+    ghx_location_notes = st.text_area("Rough sketch / GHX location notes", height=120, key="vertical_notes")
+
+    rough_sketch_image = st.file_uploader(
+        "Upload rough sketch image",
+        type=["png", "jpg", "jpeg"],
+        key="vertical_rough_sketch_image",
+    )
+
+    st.subheader("3. CAD-Specific Inputs")
+    st.caption("These are typically not available in GLD and should be confirmed by the designer.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        manifold_size = st.text_input("Return / Supply manifold size", key="vertical_manifold_size")
+        manifold_material = st.selectbox(
+            "Return / Supply manifold material grade",
+            ["SDR 11", "SDR 13.5", "Not provided"],
+            key="vertical_manifold_material",
+        )
+        balancing_valve = st.selectbox(
+            "Supply manifold balancing valve",
+            ["YES", "NO", "Not provided"],
+            key="vertical_balancing_valve",
+        )
+        runout_size = st.text_input("Return / Supply runout size", key="vertical_runout_size")
+        runout_material = st.selectbox(
+            "Return / Supply runout material grade",
+            ["SDR 11", "SDR 13.5", "Not provided"],
+            key="vertical_runout_material",
+        )
+        penetration_type = st.selectbox(
+            "Return / Supply penetration",
+            ["Wall PEN", "FLOOR PEN", "Not provided"],
+            key="vertical_penetration",
+        )
+
+    with col2:
+        header_size_sequence = st.text_input(
+            'Header size sequence, e.g. 3" to 2" to 1-1/4"',
+            key="vertical_header_sequence",
+        )
+        circuits_in_series = st.selectbox(
+            "Circuits in series",
+            ["NO", "YES", "Not provided"],
+            key="vertical_circuits_in_series",
+        )
+        energy_meter_required = st.selectbox(
+            "Energy meter required",
+            ["NO", "YES", "Not provided"],
+            key="vertical_energy_meter",
+        )
+        extra_notes = st.text_area("Additional CAD notes", height=120, key="vertical_extra_notes")
+
+    with st.expander("Fields auto-extracted from the Vertical GLD PDF"):
+        st.write("The app will ask Claude to extract these fields from the vertical GLD output:")
+        st.markdown(
+            """
+- Borehole number and circuit number
+- Borehole length / U-tube depth
+- Total bore length
+- Borehole spacing and vertical grid arrangement
+- Bores per circuit
+- U-tube size and material grade from pipe type
+- Borehole diameter
+- Fluid information
+- System flow rates
+            """.strip()
+        )
+
+    with st.expander("Optional GLD-derived field overrides"):
+        st.caption("Leave these blank to let Claude extract them from the vertical GLD output.")
+        override_borehole_spacing = st.text_input("Override borehole spacing", key="vertical_override_spacing")
+        override_u_tube_size = st.text_input("Override U-tube size", key="vertical_override_u_tube_size")
+        override_u_tube_material = st.selectbox(
+            "Override U-tube material grade",
+            ["", "SDR 11", "SDR 13.5", "Not provided"],
+            key="vertical_override_u_tube_material",
+        )
+        override_u_tube_depth = st.text_input("Override U-tube depth", key="vertical_override_depth")
+        override_circuit_number = st.text_input("Override circuit number", key="vertical_override_circuit")
+
+    if st.button("Generate Vertical CAD Request Form", type="primary"):
+        if not api_key:
+            st.error("Enter your Anthropic API key in the sidebar or .env file.")
+            st.stop()
+
+        if not cad_gld_pdf:
+            st.error("Upload the vertical GLD output PDF.")
+            st.stop()
+
+        client = Anthropic(api_key=api_key)
+
+        cad_prompt = f"""
+Analyze the uploaded vertical GLD output PDF and prepare structured information for a Vertical GHX CAD request form.
+
+Use the GLD output to automatically extract these values when available:
+- total bore length
+- borehole number
+- borehole length
+- vertical grid arrangement
+- borehole separation
+- bores per circuit
+- pipe type
+- pipe material grade, such as SDR11 or SDR13.5
+- U-tube size
+- U-tube depth
+- borehole diameter
+- fluid information
+- system flow rates
+
+For CAD form fields:
+- borehole_spacing should come from Borehole Separation and vertical grid arrangement. Include both if available, e.g. "20.0 ft spacing, 8 x 1 grid".
+- u_tube_size should come from Pipe Type.
+- u_tube_material should come from Pipe Type or Flow Type if SDR is shown.
+- u_tube_depth should come from Borehole Length.
+- circuit_number should be inferred from Borehole Number and Bores Per Circuit. For example, 8 boreholes with 1 bore per circuit means 8 circuits.
+- extra_notes should summarize useful GLD-derived design context such as total bore length, borehole number, borehole diameter, flow rates, fluid, and grid arrangement.
+
+Use user-entered fields as higher priority than the PDF.
+For optional override fields, if the override is blank, use the GLD value.
+
+Return strict JSON only with exactly these keys:
+{{
+  "job_address_name": "string",
+  "timeline_due_date": "string",
+  "ghx_location_notes": "string",
+  "manifold_size": "string",
+  "manifold_material": "string",
+  "balancing_valve": "string",
+  "runout_size": "string",
+  "runout_material": "string",
+  "penetration_type": "string",
+  "header_size_sequence": "string",
+  "borehole_spacing": "string",
+  "u_tube_size": "string",
+  "u_tube_material": "string",
+  "u_tube_depth": "string",
+  "circuit_number": "string",
+  "circuits_in_series": "string",
+  "energy_meter_required": "string",
+  "extra_notes": "string"
+}}
+
+USER INPUTS:
+Job address/name: {job_address_name}
+Timeline/due date: {timeline_due_date}
+GHX location notes: {ghx_location_notes}
+Manifold size: {manifold_size}
+Manifold material: {manifold_material}
+Balancing valve: {balancing_valve}
+Runout size: {runout_size}
+Runout material: {runout_material}
+Penetration: {penetration_type}
+Header size sequence: {header_size_sequence}
+Circuits in series: {circuits_in_series}
+Energy meter required: {energy_meter_required}
+Extra notes: {extra_notes}
+
+OPTIONAL GLD-DERIVED OVERRIDES:
+Borehole spacing override: {override_borehole_spacing}
+U-tube size override: {override_u_tube_size}
+U-tube material override: {override_u_tube_material}
+U-tube depth override: {override_u_tube_depth}
+Circuit number override: {override_circuit_number}
+
+If a value is not available, return "Not provided".
+"""
+
+        content = [
+            pdf_block(cad_gld_pdf),
+            {"type": "text", "text": cad_prompt},
+        ]
+
+        with st.status("Generating Vertical CAD request form...", expanded=True) as status:
+            message = call_claude(
+                client,
+                model,
+                max_tokens,
+                "You prepare concise structured CAD request information for vertical GHX drawings.",
+                content,
+            )
+
+            raw_text = extract_text(message)
+
+            try:
+                context = parse_json_response(raw_text)
+            except Exception as exc:
+                st.error("Claude returned output that could not be parsed as JSON.")
+                st.text_area("Raw Claude output", raw_text, height=400)
+                st.exception(exc)
+                st.stop()
+
+            docx_bytes = render_cad_request_docx(context, rough_sketch_image)
+            status.update(label="Vertical GHX CAD Request Form", state="complete")
+
+        st.success("Done. Download the Vertical CAD request form below.")
+        st.download_button(
+            label="Download Vertical CAD Request Form (.docx)",
+            data=docx_bytes,
+            file_name="Vertical_GHX_CAD_Request_Form.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        with st.expander("View generated JSON"):
+            st.json(context)
+
+
+elif page == "Slinky GHX CAD Request Form":
+    st.header("Slinky GHX CAD Request Form")
+    st.caption("Use a Slinky GLD output report plus user inputs to prepare a CAD request form.")
+
+    st.subheader("1. Slinky GLD Output PDF")
+    slinky_gld_pdf = st.file_uploader(
+        "Upload Slinky GLD output PDF",
+        type=["pdf"],
+        key="slinky_gld_pdf",
+    )
+
+    st.subheader("2. User Inputs")
+
+    job_address_name = st.text_input("Job address / name for CAD title block", key="slinky_job")
+    timeline_due_date = st.text_input("Timeline / due date", key="slinky_due_date")
+    ghx_location_notes = st.text_area("Rough sketch / GHX location notes", height=120, key="slinky_notes")
+
+    rough_sketch_image = st.file_uploader(
+        "Upload rough sketch image",
+        type=["png", "jpg", "jpeg"],
+        key="slinky_rough_sketch_image",
+    )
+
+    st.subheader("3. CAD-Specific Inputs")
+    st.caption("These are typically not available in GLD and should be confirmed by the designer.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        manifold_size = st.text_input("Return / Supply manifold size", key="slinky_manifold_size")
+        manifold_material = st.selectbox(
+            "Return / Supply manifold material grade",
+            ["SDR 11", "SDR 13.5", "Not provided"],
+            key="slinky_manifold_material",
+        )
+        balancing_valve = st.selectbox(
+            "Supply manifold balancing valve",
+            ["YES", "NO", "Not provided"],
+            key="slinky_balancing_valve",
+        )
+        runout_size = st.text_input("Return / Supply runout size", key="slinky_runout_size")
+        runout_material = st.selectbox(
+            "Return / Supply runout material grade",
+            ["SDR 11", "SDR 13.5", "Not provided"],
+            key="slinky_runout_material",
+        )
+        penetration_type = st.selectbox(
+            "Return / Supply penetration",
+            ["Wall PEN", "FLOOR PEN", "Not provided"],
+            key="slinky_penetration_type",
+        )
+
+    with col2:
+        header_size_sequence = st.text_input(
+            'Header size sequence, e.g. 3" to 2" to 1-1/4"',
+            key="slinky_header_size_sequence",
+        )
+        energy_meter_required = st.selectbox(
+            "Energy meter required",
+            ["NO", "YES", "Not provided"],
+            key="slinky_energy_meter_required",
+        )
+        extra_notes = st.text_area("Additional CAD notes", height=120, key="slinky_extra_notes")
+
+    with st.expander("Fields auto-extracted from the Slinky GLD PDF"):
+        st.write("The app will ask Claude to extract these fields from the GLD output:")
+        st.markdown(
+            """
+- Slinky pipe size and material grade
+- Slinky circuit number from trench number
+- Slinky overall spacing from trench length, trench count, separation, and total area
+- Slinky loop pitch
+- Slinky separation
+- Trench depth and loop diameter
+- Total trench length, single trench length, total pipe length, and total area
+- System flow rate
+            """.strip()
+        )
+
+    if st.button("Generate Slinky CAD Request Form", type="primary"):
+        if not api_key:
+            st.error("Enter your Anthropic API key in the sidebar or .env file.")
+            st.stop()
+
+        if not slinky_gld_pdf:
+            st.error("Upload the Slinky GLD output PDF.")
+            st.stop()
+
+        client = Anthropic(api_key=api_key)
+
+        slinky_prompt = f"""
+Analyze the uploaded Slinky GLD output PDF and prepare structured information for a Slinky GHX CAD request form.
+
+User-entered fields have priority over the PDF. For all other fields, extract values directly from the GLD output PDF.
+
+Extract these values automatically from the GLD output when available:
+- Slinky pipe size from Pipe Type, for example 3/4 in. (20 mm)
+- Slinky material grade from Pipe Type, for example SDR11 or SDR 11
+- Slinky circuit number from Trench Number
+- Slinky loop pitch from Loop Pitch
+- Slinky separation from Trench Layout Separation
+- Trench depth from Trench Layout Depth
+- Loop diameter from Loop Diameter
+- Total trench length
+- Single trench length
+- Total pipe length
+- Single trench pipe length
+- Total area
+- System flow rate
+
+For slinky_overall_spacing:
+- If the GLD report provides Total Area, Trench Number, Separation, and Single Trench Length, infer the overall spacing as approximately:
+  Trench field width = Trench Number x Separation
+  Trench field length = heating Single Trench Length if available, otherwise cooling Single Trench Length
+- Return as: "approximately [width] ft x [length] ft ([area] ft² total area)"
+- If there is not enough information, return the Total Area only.
+
+For extra_notes:
+- Include useful GLD-derived CAD notes such as trench depth, loop diameter, total trench length, total pipe length, and system flow rate.
+- Preserve any user-entered extra notes and add GLD-derived notes after them.
+
+Return strict JSON only with exactly these keys:
+{{
+  "job_address_name": "string",
+  "timeline_due_date": "string",
+  "ghx_location_notes": "string",
+  "manifold_size": "string",
+  "manifold_material": "string",
+  "balancing_valve": "string",
+  "runout_size": "string",
+  "runout_material": "string",
+  "penetration_type": "string",
+  "header_size_sequence": "string",
+  "slinky_pipe_size": "string",
+  "slinky_material": "string",
+  "slinky_overall_spacing": "string",
+  "slinky_circuit_number": "string",
+  "slinky_loop_pitch": "string",
+  "slinky_separation": "string",
+  "energy_meter_required": "string",
+  "extra_notes": "string"
+}}
+
+USER INPUTS:
+Job address/name: {job_address_name}
+Timeline/due date: {timeline_due_date}
+GHX location notes: {ghx_location_notes}
+Manifold size: {manifold_size}
+Manifold material: {manifold_material}
+Balancing valve: {balancing_valve}
+Runout size: {runout_size}
+Runout material: {runout_material}
+Penetration: {penetration_type}
+Header size sequence: {header_size_sequence}
+Energy meter required: {energy_meter_required}
+Extra notes: {extra_notes}
+
+If a user-entered value is blank, use "Not provided" unless the value can be extracted from the GLD output.
+If a GLD-derived value is not available, return "Not provided".
+Do not invent values.
+"""
+
+        content = [
+            pdf_block(slinky_gld_pdf),
+            {"type": "text", "text": slinky_prompt},
+        ]
+
+        with st.status("Generating Slinky CAD request form...", expanded=True) as status:
+            message = call_claude(
+                client,
+                model,
+                max_tokens,
+                "You prepare concise structured CAD request information for slinky GHX drawings.",
+                content,
+            )
+
+            raw_text = extract_text(message)
+
+            try:
+                context = parse_json_response(raw_text)
+            except Exception as exc:
+                st.error("Claude returned output that could not be parsed as JSON.")
+                st.text_area("Raw Claude output", raw_text, height=400)
+                st.exception(exc)
+                st.stop()
+
+            docx_bytes = render_slinky_cad_docx(context, rough_sketch_image)
+            status.update(label="Slinky GHX CAD Request Form", state="complete")
+
+        st.success("Done. Download the Slinky CAD request form below.")
+        st.download_button(
+            label="Download Slinky CAD Request Form (.docx)",
+            data=docx_bytes,
+            file_name="Slinky_GHX_CAD_Request_Form.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        with st.expander("View generated JSON"):
+            st.json(context)
+
+
+elif page == "HDD GHX CAD Request Form":
+    st.header("Horizontal Directionally Drilled GHX CAD Request Form")
+    st.caption("Use an HDD GLD output report plus user inputs to prepare a CAD request form.")
+
+    st.subheader("1. HDD GLD Output PDF")
+    hdd_gld_pdf = st.file_uploader(
+        "Upload HDD GLD output PDF",
+        type=["pdf"],
+        key="hdd_gld_pdf",
+    )
+
+    st.subheader("2. User Inputs")
+
+    job_address_name = st.text_input("Job address / name for CAD title block", key="hdd_job")
+    timeline_due_date = st.text_input("Timeline / due date", key="hdd_due_date")
+    ghx_location_notes = st.text_area("Rough sketch / GHX location notes", height=120, key="hdd_notes")
+
+    rough_sketch_image = st.file_uploader(
+        "Upload rough sketch image",
+        type=["png", "jpg", "jpeg"],
+        key="hdd_rough_sketch_image",
+    )
+
+    st.subheader("3. CAD-Specific Inputs")
+    st.caption("These are typically not available in GLD and should be confirmed by the designer.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        manifold_size = st.text_input("Return / Supply manifold size", key="hdd_manifold_size")
+        manifold_material = st.selectbox(
+            "Return / Supply manifold material grade",
+            ["SDR 11", "SDR 13.5", "Not provided"],
+            key="hdd_manifold_material",
+        )
+        balancing_valve = st.selectbox(
+            "Supply manifold balancing valve",
+            ["YES", "NO", "Not provided"],
+            key="hdd_balancing_valve",
+        )
+        runout_size = st.text_input("Return / Supply runout size", key="hdd_runout_size")
+        runout_material = st.selectbox(
+            "Return / Supply runout material grade",
+            ["SDR 11", "SDR 13.5", "Not provided"],
+            key="hdd_runout_material",
+        )
+        penetration_type = st.selectbox(
+            "Return / Supply penetration",
+            ["Wall PEN", "FLOOR PEN", "Not provided"],
+            key="hdd_penetration",
+        )
+
+    with col2:
+        header_size_sequence = st.text_input(
+            'Header size sequence, e.g. 3" to 2" to 1-1/4"',
+            key="hdd_header_sequence",
+        )
+        energy_meter_required = st.selectbox(
+            "Energy meter required",
+            ["NO", "YES", "Not provided"],
+            key="hdd_energy_meter",
+        )
+        extra_notes = st.text_area("Additional CAD notes", height=120, key="hdd_extra_notes")
+
+    with st.expander("Fields auto-extracted from the HDD GLD PDF"):
+        st.write("The app will ask Claude to extract these fields from the GLD output:")
+        st.markdown(
+            """
+- Horizontal pipe size and material grade
+- Horizontal circuit number from trench number
+- Horizontal overall spacing from trench length, trench count, separation, and total area
+- Number of horizontal layers from Pipe Layout [X x Y]
+- Depth of each horizontal layer from trench depth and vertical separation
+- Trench number, single trench length, total trench length, total pipe length, and total area
+- Horizontal and vertical pipe separation
+            """.strip()
+        )
+
+    if st.button("Generate HDD CAD Request Form", type="primary"):
+        if not api_key:
+            st.error("Enter your Anthropic API key in the sidebar or .env file.")
+            st.stop()
+
+        if not hdd_gld_pdf:
+            st.error("Upload the HDD GLD output PDF.")
+            st.stop()
+
+        client = Anthropic(api_key=api_key)
+
+        hdd_prompt = f"""
+Analyze the uploaded horizontal directionally drilled GLD output PDF and prepare structured information for an HDD GHX CAD request form.
+
+Use the GLD output to extract values wherever available. Use user-entered values as higher priority than the PDF.
+
+The HDD GLD report may use horizontal/trench terminology. Map it to the CAD form as follows:
+- Horizontal pipe size: extract from Pipe Type, for example 1 1/4 in. (32 mm)
+- Horizontal material grade: extract from Pipe Type, for example SDR11 or SDR 11
+- Horizontal circuit number: use Trench Number
+- Horizontal overall spacing: summarize approximate layout using single trench length, trench number, trench separation, and total area. If possible, format as "approx. length x width".
+- How many horizontal layers: infer from Pipe Layout [X x Y]. If the layout is 2 x 2, return 2 horizontal layers.
+- Depth of each horizontal layer: use Trench Layout Depth and Vertical Separation. If depth is 20.0 ft and vertical separation is 120.0 in, return "Layer 1: 20 ft, Layer 2: 30 ft".
+- Include trench separation, trench depth, horizontal separation, vertical separation, total trench length, single trench length, total pipe length, and total area in extra_notes if useful.
+
+Return strict JSON only with exactly these keys:
+{{
+  "job_address_name": "string",
+  "timeline_due_date": "string",
+  "ghx_location_notes": "string",
+  "manifold_size": "string",
+  "manifold_material": "string",
+  "balancing_valve": "string",
+  "runout_size": "string",
+  "runout_material": "string",
+  "penetration_type": "string",
+  "header_size_sequence": "string",
+  "horizontal_pipe_size": "string",
+  "horizontal_material": "string",
+  "horizontal_overall_spacing": "string",
+  "horizontal_circuit_number": "string",
+  "horizontal_layers": "string",
+  "horizontal_layer_depths": "string",
+  "energy_meter_required": "string",
+  "extra_notes": "string"
+}}
+
+USER INPUTS:
+Job address/name: {job_address_name}
+Timeline/due date: {timeline_due_date}
+GHX location notes: {ghx_location_notes}
+Manifold size: {manifold_size}
+Manifold material: {manifold_material}
+Balancing valve: {balancing_valve}
+Runout size: {runout_size}
+Runout material: {runout_material}
+Penetration: {penetration_type}
+Header size sequence: {header_size_sequence}
+Energy meter required: {energy_meter_required}
+Extra notes: {extra_notes}
+
+If a value is missing, return "Not provided".
+Do not invent values.
+"""
+
+        content = [
+            pdf_block(hdd_gld_pdf),
+            {"type": "text", "text": hdd_prompt},
+        ]
+
+        with st.status("Generating HDD CAD request form...", expanded=True) as status:
+            message = call_claude(
+                client,
+                model,
+                max_tokens,
+                "You prepare concise structured CAD request information for horizontal directionally drilled GHX drawings.",
+                content,
+            )
+
+            raw_text = extract_text(message)
+
+            try:
+                context = parse_json_response(raw_text)
+            except Exception as exc:
+                st.error("Claude returned output that could not be parsed as JSON.")
+                st.text_area("Raw Claude output", raw_text, height=400)
+                st.exception(exc)
+                st.stop()
+
+            docx_bytes = render_hdd_cad_docx(context, rough_sketch_image)
+            status.update(label="HDD GHX CAD Request Form", state="complete")
+
+        st.success("Done. Download the HDD CAD request form below.")
+        st.download_button(
+            label="Download HDD CAD Request Form (.docx)",
+            data=docx_bytes,
+            file_name="HDD_GHX_CAD_Request_Form.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
         with st.expander("View generated JSON"):
             st.json(context)
