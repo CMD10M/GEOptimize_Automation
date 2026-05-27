@@ -1,4 +1,4 @@
-# TESTING TESTING
+# GEOOOOO
 
 This is a first-pass internal tool for generating a GEOptimize preliminary GHX feasibility report from:
 
